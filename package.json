@@ -4,21 +4,41 @@
   "description": "Continue your coding session seamlessly across devices. Restore opened files and cursor positions exactly where you left off.",
   "version": "0.0.1",
   "engines": {
-    "vscode": "^1.108.1"
+    "vscode": ">=1.107.1"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "*"
+  ],
   "main": "./out/extension.js",
   "contributes": {
-    "commands": [
+  "viewsContainers": {
+    "activitybar": [
       {
-        "command": "devsession.helloWorld",
-        "title": "Smart"
+        "id": "devsession",
+        "title": "DevSession",
+        "icon":"src/assets/icon.png"
       }
     ]
   },
+  "views": {
+    "devsession": [
+      {
+        "id": "devsession.view",
+        "name": "Session"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "devsession.helloWorld",
+      "title": "Smart"
+    }
+  ]
+}
+,
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",

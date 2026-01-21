@@ -1,26 +1,60 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
+import * as path from 'path';
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "devsession" is now active!');
+  const provider: vscode.WebviewViewProvider = {
+    resolveWebviewView(webviewView) {
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('devsession.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from DevSession!');
-	});
+      webviewView.webview.options = {
+        enableScripts: true,
+        localResourceRoots: [
+          vscode.Uri.joinPath(context.extensionUri, 'webview', 'dist')
+        ]
+      };
 
-	context.subscriptions.push(disposable);
+      const htmlPath = vscode.Uri.joinPath(
+        context.extensionUri,
+        'assets',
+        'index.html'
+      );
+
+      webviewView.webview.html = getHtml(webviewView.webview, htmlPath);
+    }
+
+    
+  };
+
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      'devsession.view',
+      provider
+    )
+  );
 }
 
-// This method is called when your extension is deactivated
+
+
+function getHtml(webview: vscode.Webview, htmlPath: vscode.Uri): string {
+  const fs = require('fs');
+  let html = fs.readFileSync(htmlPath.fsPath, 'utf8');
+
+  return html.replace(
+    /(<head>)/,
+    `$1
+    <meta http-equiv="Content-Security-Policy"
+      content="default-src 'none';
+      img-src ${webview.cspSource} https:;
+      script-src ${webview.cspSource};
+      style-src ${webview.cspSource} 'unsafe-inline';">
+    `
+  );
+
+
+
+
+
+  
+}
+
 export function deactivate() {}
