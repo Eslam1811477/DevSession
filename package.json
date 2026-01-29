@@ -10,35 +10,34 @@
     "Other"
   ],
   "activationEvents": [
-    "*"
+    "onView:devsession.view"
   ],
   "main": "./out/extension.js",
   "contributes": {
-  "viewsContainers": {
-    "activitybar": [
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "devsession",
+          "title": "DevSession",
+          "icon": "src/assets/icon.png"
+        }
+      ]
+    },
+    "views": {
+      "devsession": [
+        {
+          "id": "devsession.view",
+          "name": "Session"
+        }
+      ]
+    },
+    "commands": [
       {
-        "id": "devsession",
-        "title": "DevSession",
-        "icon":"src/assets/icon.png"
+        "command": "devsession.helloWorld",
+        "title": "Smart"
       }
     ]
   },
-  "views": {
-    "devsession": [
-      {
-        "id": "devsession.view",
-        "name": "Session"
-      }
-    ]
-  },
-  "commands": [
-    {
-      "command": "devsession.helloWorld",
-      "title": "Smart"
-    }
-  ]
-}
-,
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
