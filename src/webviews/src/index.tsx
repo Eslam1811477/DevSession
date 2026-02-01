@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react'
 import ReactDOM from 'react-dom'
 import View1 from './View1'
-import View2 from './View2'
 import './lib/vscode.css'
 import {
   MemoryRouter as Router,
@@ -34,13 +33,14 @@ function AppRoutes() {
   let location = useLocation()
   let navigate = useNavigate()
   useEffect(() => {
-    navigate(`/${rootEl.dataset.route}`, { replace: true })
+    if(rootEl){
+      navigate(`/${rootEl.dataset.route}`, { replace: true })
+    }
   }, [])
 
   return (
     <Routes>
       <Route path="view1" element={<View1 />} />
-      <Route path="view2" element={<View2 />} />
     </Routes>
   )
 }

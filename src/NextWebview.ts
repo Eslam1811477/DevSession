@@ -1,4 +1,6 @@
 import * as vscode from 'vscode'
+import * as fs from 'fs'
+import * as path from 'path'
 import { nanoid } from 'nanoid'
 
 type NextWebviewOptions = {
@@ -9,212 +11,151 @@ type NextWebviewOptions = {
   scriptUri?: vscode.Uri
   styleUri?: vscode.Uri
   nonce?: string
-  handleMessage?: (message: any) => any
 }
 
-abstract class NextWebview {
-  protected readonly _opts: Required<NextWebviewOptions>
-
-  public constructor(options: NextWebviewOptions) {
-    // fill out the internal configuration with defaults
-    this._opts = Object.assign(
-      {
-        scriptUri: vscode.Uri.joinPath(
-          options.extensionUri,
-          'out/webviews/index.es.js'
-        ),
-        styleUri: vscode.Uri.joinPath(
-          options.extensionUri,
-          'out/webviews/style.css'
-        ),
-        nonce: nanoid(),
-        handleMessage: () => {},
-      },
-      options
-    )
-  }
-
-  protected getWebviewOptions(): vscode.WebviewOptions {
-    return {
-      // Enable javascript in the webview
-      enableScripts: true,
-
-      // And restrict the webview to only loading content from our extension's `out` directory.
-      localResourceRoots: [vscode.Uri.joinPath(this._opts.extensionUri, 'out')],
-    }
-  }
-
-  protected handleMessage(message: any): void {
-    this._opts.handleMessage(message)
-  }
-
-  protected _getContent(webview: vscode.Webview) {
-    // Prepare webview URIs
-    const scriptUri = webview.asWebviewUri(this._opts.scriptUri)
-    const styleUri = webview.asWebviewUri(this._opts.styleUri)
-
-    // Return the HTML with all the relevant content embedded
-    // Also sets a Content-Security-Policy that permits all the sources
-    // we specified. Note that img-src allows `self` and `data:`,
-    // which is at least a little scary, but otherwise we can't stick
-    // SVGs in CSS as background images via data URLs, which is hella useful.
-    return /* html */ `
-			<!DOCTYPE html>
-			<html lang="en">
-			<head>
-				<meta charset="UTF-8">
-
-				<!--
-				Use a content security policy to only allow loading images from https or from our extension directory,
-				and only allow scripts that have a specific nonce.
-        -->
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} 'self' data:; style-src ${webview.cspSource}; script-src 'nonce-${this._opts.nonce}';">
-				<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-        
-				<link href="${styleUri}" rel="stylesheet" />
-        <script nonce="${this._opts.nonce}">
-          window.acquireVsCodeApi = acquireVsCodeApi;
-        </script>
-
-				<title>Next Webview</title>
-			</head>
-			<body>
-				<div id="root" data-route="${this._opts.route}"></div>			
-				<script nonce="${this._opts.nonce}" src="${scriptUri}"></script>
-			</body>
-			</html>`
-  }
-
-  public abstract update(): void
+type SessionFile = {
+  path: string
+  line: number
+  character: number
 }
 
-export class NextWebviewPanel extends NextWebview implements vscode.Disposable {
+type DevSession = {
+  createdAt: string
+  files: SessionFile[]
+}
+
+const SESSION_DIR = '.devsession'
+const SESSION_FILE = 'session.json'
+
+export class NextWebviewPanel {
   private static instances: { [id: string]: NextWebviewPanel } = {}
-
   private readonly panel: vscode.WebviewPanel
   private _disposables: vscode.Disposable[] = []
 
-  // Singleton
-  public static getInstance(
-    opts: NextWebviewOptions & { column?: vscode.ViewColumn }
-  ): NextWebviewPanel {
-    const _opts = Object.assign(
-      {
-        column: vscode.window.activeTextEditor
-          ? vscode.window.activeTextEditor.viewColumn
-          : undefined,
-      },
-      opts
-    )
-
-    let instance = NextWebviewPanel.instances[_opts.viewId]
+  public static getInstance(opts: NextWebviewOptions & { column?: vscode.ViewColumn }) {
+    let instance = NextWebviewPanel.instances[opts.viewId]
     if (instance) {
-      // If we already have an instance, use it to show the panel
-      instance.panel.reveal(_opts.column)
+      instance.panel.reveal(opts.column)
     } else {
-      // Otherwise, create an instance
-      instance = new NextWebviewPanel(_opts)
-      NextWebviewPanel.instances[_opts.viewId] = instance
+      instance = new NextWebviewPanel(opts)
+      NextWebviewPanel.instances[opts.viewId] = instance
     }
-
     return instance
   }
 
-  private constructor(
-    opts: NextWebviewOptions & { column?: vscode.ViewColumn }
-  ) {
-    // Create the webview panel
-    super(opts)
+  private constructor(private opts: NextWebviewOptions & { column?: vscode.ViewColumn }) {
     this.panel = vscode.window.createWebviewPanel(
       opts.route,
       opts.title,
       opts.column || vscode.ViewColumn.One,
-      this.getWebviewOptions()
+      {
+        enableScripts: true,
+        localResourceRoots: [vscode.Uri.joinPath(opts.extensionUri, 'out')],
+      }
     )
-    // Update the content
+
     this.update()
 
-    // Listen for when the panel is disposed
-    // This happens when the user closes the panel or when the panel is closed programmatically
     this.panel.onDidDispose(() => this.dispose(), null, this._disposables)
 
-    // Update the content based on view changes
-    // this.panel.onDidChangeViewState(
-    //   e => {
-    //     console.debug('View state changed! ', this._opts.viewId,)
-    //     if (this.panel.visible) {
-    //       this.update()
-    //     }
-    //   },
-    //   null,
-    //   this._disposables
-    // )
-
-    this.panel.webview.onDidReceiveMessage(
-      this.handleMessage,
-      this,
-      this._disposables
-    )
+    this.panel.webview.onDidReceiveMessage(this.handleMessage.bind(this), this, this._disposables)
   }
 
-  // Panel updates may also update the panel title
-  // in addition to the webview content.
+  private async handleMessage(message: any) {
+    switch (message.type) {
+      case 'SAVE_SESSION':
+        await this.saveSession()
+        break
+      case 'RESTORE_SESSION':
+        await this.restoreSession()
+        break
+    }
+  }
+
+  private async saveSession() {
+    const workspace = vscode.workspace.workspaceFolders?.[0]
+    if (!workspace) return
+
+    const sessionDir = path.join(workspace.uri.fsPath, SESSION_DIR)
+    if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir)
+
+    const sessionFile = path.join(sessionDir, SESSION_FILE)
+
+    const files: SessionFile[] = vscode.window.visibleTextEditors.map(editor => ({
+      path: editor.document.uri.fsPath,
+      line: editor.selection.active.line,
+      character: editor.selection.active.character,
+    }))
+
+    const session: DevSession = { createdAt: new Date().toISOString(), files }
+    fs.writeFileSync(sessionFile, JSON.stringify(session, null, 2))
+
+    this.postStatus(`Session saved (${files.length} files)`)
+  }
+
+  private async restoreSession() {
+    const workspace = vscode.workspace.workspaceFolders?.[0]
+    if (!workspace) return
+
+    const sessionFile = path.join(workspace.uri.fsPath, SESSION_DIR, SESSION_FILE)
+    if (!fs.existsSync(sessionFile)) {
+      this.postStatus('No session found')
+      return
+    }
+
+    const raw = fs.readFileSync(sessionFile, 'utf-8')
+    const session: DevSession = JSON.parse(raw)
+
+    for (const file of session.files) {
+      try {
+        const doc = await vscode.workspace.openTextDocument(file.path)
+        const editor = await vscode.window.showTextDocument(doc, { preview: false })
+        const pos = new vscode.Position(file.line, file.character)
+        editor.selection = new vscode.Selection(pos, pos)
+        editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter)
+      } catch {}
+    }
+
+    this.postStatus(`Session restored (${session.files.length} files)`)
+  }
+
+  private postStatus(status: string) {
+    this.panel.webview.postMessage({ type: 'STATUS', payload: status })
+  }
+
+  private _getContent(webview: vscode.Webview) {
+    const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.opts.extensionUri, 'out/webviews/index.es.js'))
+    const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.opts.extensionUri, 'out/webviews/style.css'))
+    const nonce = nanoid()
+
+    return /* html */ `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="${styleUri}" rel="stylesheet" />
+<title>${this.opts.title}</title>
+<script nonce="${nonce}">window.acquireVsCodeApi = acquireVsCodeApi;</script>
+</head>
+<body>
+<div id="root" data-route="${this.opts.route}"></div>
+<script nonce="${nonce}" src="${scriptUri}"></script>
+</body>
+</html>`
+  }
+
   public update() {
-    console.debug('Updating! ', this._opts.viewId)
-    this.panel.title = this._opts.title
+    this.panel.title = this.opts.title
     this.panel.webview.html = this._getContent(this.panel.webview)
   }
 
   public dispose() {
-    // Disposes of this instance
-    // Next time getInstance() is called, it will construct a new instance
-    console.debug('Disposing! ', this._opts.viewId)
-    delete NextWebviewPanel.instances[this._opts.viewId]
-
-    // Clean up our resources
+    delete NextWebviewPanel.instances[this.opts.viewId]
     this.panel.dispose()
     while (this._disposables.length) {
       const x = this._disposables.pop()
-      if (x) {
-        x.dispose()
-      }
-    }
-  }
-}
-
-// export class NextWebviewPanelSerializer implements vscode.WebviewPanelSerializer {
-//   deserializeWebviewPanel(webviewPanel: vscode.WebviewPanel, state: unknown): Thenable<void> {
-//     console.log('deserialized state: ', state)
-//     webviewPanel
-//   }
-
-// }
-
-export class NextWebviewSidebar
-  extends NextWebview
-  implements vscode.WebviewViewProvider
-{
-  private _webview?: vscode.WebviewView
-
-  public resolveWebviewView(
-    webviewView: vscode.WebviewView,
-    context: vscode.WebviewViewResolveContext<unknown>,
-    token: vscode.CancellationToken
-  ): void | Thenable<void> {
-    // Create the webviewView and configure it
-    this._webview = webviewView
-    this._webview.webview.options = this.getWebviewOptions()
-    // Set the initial html
-    this.update()
-    // Handle messages from the webview
-    this._webview.webview.onDidReceiveMessage(this.handleMessage, this)
-  }
-
-  // WebviewView updates are just "write the html to the view"
-  update(): void {
-    if (this._webview) {
-      this._webview.webview.html = this._getContent(this._webview.webview)
+      if (x) x.dispose()
     }
   }
 }
