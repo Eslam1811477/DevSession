@@ -1,44 +1,34 @@
-# DevSession
+# vscode-react-webviews
 
-DevSession helps you continue your coding session seamlessly across multiple devices.
+A sample/starter template for developing VS Code extensions with webviews
 
-It automatically restores the files you were working on and places your cursor exactly where you left off — so you can switch machines without losing focus.
+## How do I use it?
 
-## ✨ Features
-- Restore previously opened files
-- Restore cursor position (line & column)
-- Seamless workflow across multiple devices
-- Works offline with no external services
-- Simple JSON-based session file
-- Git & cloud-sync friendly
+`npx degit githubnext/vscode-react-webviews`
 
-## 🔧 How It Works
-DevSession stores your session state in a single file inside your workspace:
+Then edit the template to your hearts' content.
 
-.devsession.json
+## Why does this exist?
 
-This file can be synced using Git, Dropbox, OneDrive, or any file-sync service.
-When you reopen the project, DevSession automatically restores your session.
+The VS Code extension environment comes with two general approaches to development. Where possible, it is best to use the builtin APIs as they avoid many common performance pitfalls and permit you to reuse existing UX patterns.
 
-## 🔒 Privacy & Security
-DevSession is privacy-first by design:
-- No internet access
-- No cloud accounts
-- No data collection
-- No tracking
+However, if your application cannot be implemented using the builtins, then you must implement your UIs using webviews. Webviews in VS Code give you all of the power, but using them effectively can involve a lot of headache, and it's very easy to do things that ruin performance.
 
-All session data stays local and fully transparent.
+This project is a template of sorts. It encodes a lot of best practices for building extensions that rely on webviews — like custom editors, panels, and sidebars. It assumes that you are building your webviews in React, and it is set up to accomodate multiple webviews in a single extension.
 
-## 🚀 Use Cases
-- Continue work between home and office
-- Resume coding after reboot
-- Seamless multi-device development
-- Focus-driven workflows
+Some other niceties:
 
-## 📦 Installation
-Coming soon on VS Code Marketplace.
+- A working Typescript setup for both the extension _and_ the webview.
+- A sample react app
+- Tailwind CSS for styling, using JIT for speedy builds
+- VS Code theme colors exposed as Tailwind colors for ease of "theme-native" styling.
+- Lots of little quality-of-life refinements, like a tasks.json which knows to wait for builds to complete before launching the extension host, and css_custom_data.json so that VS Code doesn't complain at you for using `@tailwind` directives in your css.
+- [Vite](https://vitejs.dev/) for the speediest-possible building and bundling with [esbuild](https://esbuild.github.io/).
 
-## 📝 License
+Sadly, incremental builds are not possible with the way that VS Code currently works. That means that each build is effectively "bundling for production".
+
+Similarly, because webviews are iframes, there's no hot module replacement. There's no websockets across the boundary between the extension host and the iframe.
+
+# License
+
 MIT
-
-

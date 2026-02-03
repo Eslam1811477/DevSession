@@ -1,75 +1,153 @@
-import * as vscode from 'vscode';
-import * as fs from 'fs';
+import * as vscode from 'vscode'
+import * as fs from 'fs'
+import * as path from 'path'
+import { NextWebviewPanel } from './NextWebview'
 
-export function activate(context: vscode.ExtensionContext) {
-
-  const provider = new DevSessionViewProvider(context);
-
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      'devsession.view',
-      provider
-    )
-  );
+type SessionFile = {
+  path: string
+  line: number
+  character: number
 }
 
-class DevSessionViewProvider implements vscode.WebviewViewProvider {
+type DevSession = {
+  createdAt: string
+  files: SessionFile[]
+}
 
-  constructor(
-    private readonly context: vscode.ExtensionContext
-  ) {}
+const SESSION_DIR = '.devsession'
+const SESSION_FILE = 'session.json'
 
-  resolveWebviewView(webviewView: vscode.WebviewView) {
+export function activate(context: vscode.ExtensionContext) {
+  context.subscriptions.push(
+    vscode.commands.registerCommand('devsession', () => {
+      const panel = NextWebviewPanel.getInstance({
+        extensionUri: context.extensionUri,
+        route: 'view1',
+        title: 'Devsession',
+        viewId: 'ghnextA',
+      })
 
-    webviewView.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [
-        vscode.Uri.joinPath(this.context.extensionUri, 'assets')
-      ]
-    };
+      // 🔌 Receive messages from React Webview
+      panel.webview.onDidReceiveMessage(message => {
+        if (message.type === 'SAVE_SESSION') {
+          saveSession(panel)
+        }
 
-    const htmlPath = vscode.Uri.joinPath(
-      this.context.extensionUri,
-      'assets',
-      'index.html'
-    );
+        if (message.type === 'RESTORE_SESSION') {
+          restoreSession(panel)
+        }
+      })
+    })
+  )
+}
 
-    webviewView.webview.html = this.getHtml(
-      webviewView.webview,
-      htmlPath
-    );
+/* =========================
+   SAVE SESSION
+========================= */
+async function saveSession(panel: vscode.WebviewPanel) {
+  const workspace = vscode.workspace.workspaceFolders?.[0]
+  if (!workspace) {
+    panel.webview.postMessage({
+      type: 'STATUS',
+      payload: 'No workspace open',
+    })
+    return
   }
 
-  private getHtml(
-    webview: vscode.Webview,
-    htmlPath: vscode.Uri
-  ): string {
+  const sessionDir = path.join(
+    workspace.uri.fsPath,
+    SESSION_DIR
+  )
 
-    let html = fs.readFileSync(htmlPath.fsPath, 'utf8');
+  const sessionFile = path.join(
+    sessionDir,
+    SESSION_FILE
+  )
 
-    const assetsUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'assets')
-    );
-
-    html = html.replace(/(src|href)="(.+?)"/g, (_, attr, value) => {
-      return `${attr}="${assetsUri}/${value}"`;
-    });
-
-    html = html.replace(
-      /<head>/,
-      `<head>
-        <meta http-equiv="Content-Security-Policy"
-          content="
-            default-src 'none';
-            img-src ${webview.cspSource};
-            script-src ${webview.cspSource};
-            style-src ${webview.cspSource} 'unsafe-inline';
-          ">
-      `
-    );
-
-    return html;
+  if (!fs.existsSync(sessionDir)) {
+    fs.mkdirSync(sessionDir)
   }
+
+  const files: SessionFile[] = vscode.window.visibleTextEditors.map(
+    editor => ({
+      path: editor.document.uri.fsPath,
+      line: editor.selection.active.line,
+      character: editor.selection.active.character,
+    })
+  )
+
+  const session: DevSession = {
+    createdAt: new Date().toISOString(),
+    files,
+  }
+
+  fs.writeFileSync(
+    sessionFile,
+    JSON.stringify(session, null, 2)
+  )
+
+  panel.webview.postMessage({
+    type: 'STATUS',
+    payload: `Session saved (${files.length} files)`,
+  })
+}
+
+/* =========================
+   RESTORE SESSION
+========================= */
+async function restoreSession(panel: vscode.WebviewPanel) {
+  const workspace = vscode.workspace.workspaceFolders?.[0]
+  if (!workspace) {
+    panel.webview.postMessage({
+      type: 'STATUS',
+      payload: 'No workspace open',
+    })
+    return
+  }
+
+  const sessionFile = path.join(
+    workspace.uri.fsPath,
+    SESSION_DIR,
+    SESSION_FILE
+  )
+
+  if (!fs.existsSync(sessionFile)) {
+    panel.webview.postMessage({
+      type: 'STATUS',
+      payload: 'No session found',
+    })
+    return
+  }
+
+  const raw = fs.readFileSync(sessionFile, 'utf-8')
+  const session: DevSession = JSON.parse(raw)
+
+  for (const file of session.files) {
+    try {
+      const doc = await vscode.workspace.openTextDocument(file.path)
+      const editor = await vscode.window.showTextDocument(doc, {
+        preview: false,
+      })
+
+      const pos = new vscode.Position(
+        file.line,
+        file.character
+      )
+
+      editor.selection = new vscode.Selection(pos, pos)
+      editor.revealRange(
+        new vscode.Range(pos, pos),
+        vscode.TextEditorRevealType.InCenter
+      )
+    } catch {
+      // ignore missing files
+    }
+  }
+
+  panel.webview.postMessage({
+    type: 'STATUS',
+    payload: `Session restored (${session.files.length} files)`,
+  })
 }
 
 export function deactivate() {}
