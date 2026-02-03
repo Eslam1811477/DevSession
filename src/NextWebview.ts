@@ -31,10 +31,7 @@ export class NextWebviewPanel {
   private static instances: { [id: string]: NextWebviewPanel } = {}
   private readonly panel: vscode.WebviewPanel
   private _disposables: vscode.Disposable[] = []
-<<<<<<< HEAD
   private _autoSaveTimer?: NodeJS.Timeout
-=======
->>>>>>> 137a062d3857d3f4250d94b0b49f1b3c314cb3d1
 
   public static getInstance(opts: NextWebviewOptions & { column?: vscode.ViewColumn }) {
     let instance = NextWebviewPanel.instances[opts.viewId]
@@ -105,7 +102,6 @@ export class NextWebviewPanel {
 
     const sessionFile = path.join(sessionDir, SESSION_FILE)
 
-<<<<<<< HEAD
 
     const tabs = vscode.window.tabGroups.all
       .flatMap(group => group.tabs)
@@ -138,24 +134,11 @@ export class NextWebviewPanel {
       files,
     }
 
-=======
-    const files: SessionFile[] = vscode.window.visibleTextEditors.map(editor => ({
-      path: editor.document.uri.fsPath,
-      line: editor.selection.active.line,
-      character: editor.selection.active.character,
-    }))
-
-    const session: DevSession = { createdAt: new Date().toISOString(), files }
->>>>>>> 137a062d3857d3f4250d94b0b49f1b3c314cb3d1
     fs.writeFileSync(sessionFile, JSON.stringify(session, null, 2))
 
     this.postStatus(`Session saved (${files.length} files)`)
   }
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 137a062d3857d3f4250d94b0b49f1b3c314cb3d1
   private async restoreSession() {
     const workspace = vscode.workspace.workspaceFolders?.[0]
     if (!workspace) return
@@ -176,11 +159,7 @@ export class NextWebviewPanel {
         const pos = new vscode.Position(file.line, file.character)
         editor.selection = new vscode.Selection(pos, pos)
         editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter)
-<<<<<<< HEAD
       } catch { }
-=======
-      } catch {}
->>>>>>> 137a062d3857d3f4250d94b0b49f1b3c314cb3d1
     }
 
     this.postStatus(`Session restored (${session.files.length} files)`)
@@ -225,7 +204,6 @@ export class NextWebviewPanel {
       if (x) x.dispose()
     }
   }
-<<<<<<< HEAD
 
   public async autoSave() {
     clearTimeout(this._autoSaveTimer)
@@ -241,6 +219,4 @@ export class NextWebviewPanel {
   }
 
 
-=======
->>>>>>> 137a062d3857d3f4250d94b0b49f1b3c314cb3d1
 }
