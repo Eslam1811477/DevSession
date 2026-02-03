@@ -31,6 +31,7 @@ export class NextWebviewPanel {
   private static instances: { [id: string]: NextWebviewPanel } = {}
   private readonly panel: vscode.WebviewPanel
   private _disposables: vscode.Disposable[] = []
+  private _autoSaveTimer?: NodeJS.Timeout
 
   public static getInstance(opts: NextWebviewOptions & { column?: vscode.ViewColumn }) {
     let instance = NextWebviewPanel.instances[opts.viewId]
@@ -72,6 +73,26 @@ export class NextWebviewPanel {
     }
   }
 
+
+  private async isSessionFileExists(
+  workspace: vscode.WorkspaceFolder
+): Promise<boolean> {
+  const fileUri = vscode.Uri.joinPath(
+    workspace.uri,
+    '.devsession',
+    'session.json'
+  )
+
+  try {
+    await vscode.workspace.fs.stat(fileUri)
+    return true
+  } catch {
+    return false
+  }
+}
+
+
+
   private async saveSession() {
     const workspace = vscode.workspace.workspaceFolders?.[0]
     if (!workspace) return
@@ -81,17 +102,43 @@ export class NextWebviewPanel {
 
     const sessionFile = path.join(sessionDir, SESSION_FILE)
 
-    const files: SessionFile[] = vscode.window.visibleTextEditors.map(editor => ({
-      path: editor.document.uri.fsPath,
-      line: editor.selection.active.line,
-      character: editor.selection.active.character,
-    }))
 
-    const session: DevSession = { createdAt: new Date().toISOString(), files }
+    const tabs = vscode.window.tabGroups.all
+      .flatMap(group => group.tabs)
+      .filter(tab => tab.input instanceof vscode.TabInputText)
+
+
+    const visibleEditorsMap = new Map(
+      vscode.window.visibleTextEditors.map(editor => [
+        editor.document.uri.fsPath,
+        editor,
+      ])
+    )
+
+
+    const files: SessionFile[] = tabs.map(tab => {
+      const input = tab.input as vscode.TabInputText
+      const filePath = input.uri.fsPath
+
+      const editor = visibleEditorsMap.get(filePath)
+
+      return {
+        path: filePath,
+        line: editor?.selection.active.line ?? 0,
+        character: editor?.selection.active.character ?? 0,
+      }
+    })
+
+    const session: DevSession = {
+      createdAt: new Date().toISOString(),
+      files,
+    }
+
     fs.writeFileSync(sessionFile, JSON.stringify(session, null, 2))
 
     this.postStatus(`Session saved (${files.length} files)`)
   }
+
 
   private async restoreSession() {
     const workspace = vscode.workspace.workspaceFolders?.[0]
@@ -113,7 +160,7 @@ export class NextWebviewPanel {
         const pos = new vscode.Position(file.line, file.character)
         editor.selection = new vscode.Selection(pos, pos)
         editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter)
-      } catch {}
+      } catch { }
     }
 
     this.postStatus(`Session restored (${session.files.length} files)`)
@@ -158,4 +205,19 @@ export class NextWebviewPanel {
       if (x) x.dispose()
     }
   }
+
+  public async autoSave() {
+    clearTimeout(this._autoSaveTimer)
+
+    this._autoSaveTimer = setTimeout(async () => {
+      const workspace = vscode.workspace.workspaceFolders?.[0]
+      if (!workspace) return
+
+      if(await this.isSessionFileExists(workspace)){
+        this.saveSession()
+      }
+    }, 300)
+  }
+
+
 }
