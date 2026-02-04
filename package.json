@@ -47,13 +47,18 @@
   },
   "activationEvents": [
     "onCommand:NextWebview1.start",
-    "onCommand:NextWebview2.start"
+    "onStartupFinished",
+    "onCommand:devsession.initSession"
   ],
   "contributes": {
     "commands": [
       {
         "command": "devsession",
         "title": "Open Devsession"
+      },
+      {
+        "command": "devsession.initSession",
+        "title": "Init Dev Session"
       }
     ]
   }
